@@ -1,9 +1,6 @@
 
 
-class CNNLayer:
-    def __init__(self):
-        self.status = "INITIALIZED"
-
+class TestClass:
     def test(self):
-        print("IT'S WORKING!")
+        print("Github classes initialized!")
 
