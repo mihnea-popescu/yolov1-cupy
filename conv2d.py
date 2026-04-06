@@ -1,7 +1,6 @@
 import cupy as cp
 import cupyx
 
-
 def get_im2col_idx(x_shape: tuple, kernel_size: int, pad: int, stride: int):
     N, C, H, W = x_shape
     H_out = (H + 2 * pad - kernel_size) // stride + 1
@@ -92,8 +91,28 @@ class Conv2D:
         if bias:
             self.bias = cp.zeros(out_channels, dtype=dtype)
 
+        self.init()
+
         self.db = None
         self.dW = None
+        self.x = None
+        self.cols = None
+        self.out_shape = None
+
+    def init(self):
+        fan_in = self.in_channels * self.kernel_size * self.kernel_size
+        fan_out = self.out_channels * self.kernel_size * self.kernel_size
+
+        limit = cp.sqrt(6.0 / (fan_in + fan_out))
+
+        self.weights = cp.random.uniform(
+            low=-limit,
+            high=limit,
+            size=self.weights.shape
+        ).astype(self.dtype)
+
+        if self.bias is not None:
+            self.bias = cp.zeros_like(self.bias)
 
     def set_weights(self, weights: cp.ndarray):
         expected_shape = (self.out_channels, self.in_channels,
