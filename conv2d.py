@@ -68,7 +68,7 @@ class Conv2D:
       Size of the convolutional kernel.
     stride: int
       Stride of the convolution. Default: 1.
-    padding: int
+    padding: int or string ['same', 'valid']
       Padding added to all four sides of the input. Default: 0
     bias: bool
       Whether to include a bias term. Default: False
@@ -82,8 +82,21 @@ class Conv2D:
         self.out_channels = out_channels
         self.kernel_size = kernel_size
         self.stride = stride
-        self.padding = padding
         self.dtype = dtype
+
+        assert isinstance(padding, str) or isinstance(padding, int), "Must be string or int"
+
+        if isinstance(padding, int):
+            self.padding = padding
+        elif padding == "valid":
+            self.padding = 0
+        elif padding == "same":
+            assert stride == 1, "'same' currently only supports stride=1"
+            assert kernel_size % 2 == 1, "'same' currently only supports odd kernel sizes"
+            self.padding = (kernel_size - 1) // 2
+        else:
+            raise ValueError("Padding must be int, 'valid', or 'same'")
+
 
         self.weights = cp.zeros(
             (out_channels, in_channels, kernel_size, kernel_size), dtype=dtype)
