@@ -2,6 +2,7 @@ import cupy as cp
 
 from batchnorm2d import BatchNorm2D
 from conv2d import Conv2D
+from global_avg_pool2d import GlobalAvgPool2D
 from leaky_relu import LeakyReLU
 from linear import Linear
 from maxpool import MaxPool2D
@@ -40,6 +41,7 @@ class MiniDarknet:
                     MaxPool2D(kernel_size=2, stride=2),
                 )
             )
+        self.gap = GlobalAvgPool2D()
         self.fc = Linear(256, num_classes, bias=True)
 
     def forward(self, x: cp.ndarray) -> cp.ndarray:
@@ -50,8 +52,7 @@ class MiniDarknet:
             x = bn.forward(x)
             x = act.forward(x)
             x = pool.forward(x)
-        # (N, 256, 7, 7) -> global average pool -> (N, 256)
-        x = x.mean(axis=(2, 3))
+        x = self.gap.forward(x)
         return self.fc.forward(x)
 
     def __call__(self, x: cp.ndarray) -> cp.ndarray:
