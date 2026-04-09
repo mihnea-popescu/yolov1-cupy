@@ -1,4 +1,7 @@
+from pathlib import Path
+
 import cupy as cp
+import numpy as np
 
 from batchnorm2d import BatchNorm2D
 from conv2d import Conv2D
@@ -99,6 +102,51 @@ class MiniDarknet:
         self.fc.W -= lr * self.fc.dW
         if self.fc.use_bias:
             self.fc.b -= lr * self.fc.db
+
+    def save_weights(self, path: str | Path) -> None:
+        """Save conv / batchnorm / linear tensors to a compressed ``.npz`` (NumPy on disk)."""
+        path = Path(path)
+        payload: dict[str, np.ndarray] = {
+            "num_classes": np.array([self.fc.out_features], dtype=np.int64),
+        }
+        for i, (conv, bn, _, _) in enumerate(self.blocks):
+            payload[f"conv{i}_weights"] = cp.asnumpy(conv.weights)
+            if conv.bias is not None:
+                payload[f"conv{i}_bias"] = cp.asnumpy(conv.bias)
+            if bn.affine:
+                payload[f"bn{i}_gamma"] = cp.asnumpy(bn.gamma)
+                payload[f"bn{i}_beta"] = cp.asnumpy(bn.beta)
+            payload[f"bn{i}_running_mean"] = cp.asnumpy(bn.running_mean)
+            payload[f"bn{i}_running_var"] = cp.asnumpy(bn.running_var)
+        payload["fc_W"] = cp.asnumpy(self.fc.W)
+        if self.fc.use_bias:
+            payload["fc_b"] = cp.asnumpy(self.fc.b)
+        np.savez_compressed(path, **payload)
+
+    def load_weights(self, path: str | Path) -> None:
+        """Load weights produced by :meth:`save_weights` into this model."""
+        path = Path(path)
+        data = np.load(path, allow_pickle=False)
+        nc = int(data["num_classes"][0])
+        assert nc == self.fc.out_features, (
+            f"Checkpoint has num_classes={nc}, model has {self.fc.out_features}"
+        )
+        for i, (conv, bn, _, _) in enumerate(self.blocks):
+            conv.weights = cp.asarray(data[f"conv{i}_weights"], dtype=self.dtype)
+            key_b = f"conv{i}_bias"
+            if key_b in data.files:
+                if conv.bias is not None:
+                    conv.bias = cp.asarray(data[key_b], dtype=self.dtype)
+            elif conv.bias is not None:
+                raise KeyError(f"Missing {key_b} in checkpoint")
+            if bn.affine:
+                bn.gamma = cp.asarray(data[f"bn{i}_gamma"], dtype=self.dtype)
+                bn.beta = cp.asarray(data[f"bn{i}_beta"], dtype=self.dtype)
+            bn.running_mean = cp.asarray(data[f"bn{i}_running_mean"], dtype=self.dtype)
+            bn.running_var = cp.asarray(data[f"bn{i}_running_var"], dtype=self.dtype)
+        self.fc.W = cp.asarray(data["fc_W"], dtype=self.dtype)
+        if self.fc.use_bias:
+            self.fc.b = cp.asarray(data["fc_b"], dtype=self.dtype)
 
     def __call__(self, x: cp.ndarray) -> cp.ndarray:
         return self.forward(x)
