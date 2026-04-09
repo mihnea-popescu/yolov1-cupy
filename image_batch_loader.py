@@ -86,3 +86,16 @@ def image_label_batch(
             f"No samples for batch_index={batch_index} (dataset size {len(labeled)})"
         )
     return _tensor_pair_from_labeled(chunk, size)
+
+
+def dataset_size(repo_root, data_root=None) -> int:
+    """Number of labeled images found under the repo (or ``data_root``)."""
+    return len(_labeled_paths_from_repo(repo_root, data_root=data_root))
+
+
+def num_batches_per_epoch(repo_root, batch_size, data_root=None) -> int:
+    """Batches when covering every sample once (last batch may be smaller)."""
+    n = dataset_size(repo_root, data_root=data_root)
+    if n == 0:
+        return 0
+    return (n + batch_size - 1) // batch_size
