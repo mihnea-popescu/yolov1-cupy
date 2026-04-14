@@ -126,16 +126,35 @@ def num_batches_per_epoch(repo_root, batch_size, data_root=None) -> int:
 
 def _find_voc_root(repo_root, data_root=None):
     repo_root = Path(repo_root)
+    root = None
     if data_root is not None:
-        root = Path(data_root)
+        data_root_path = Path(data_root)
+        data_candidates = (
+            data_root_path,
+            data_root_path / "VOC2012",
+            data_root_path / "VOCdevkit" / "VOC2012",
+            data_root_path / "VOC2012_train_val",
+            data_root_path / "VOC2012_train_val" / "VOC2012",
+            data_root_path / "VOC2012_train_val" / "VOCdevkit" / "VOC2012",
+        )
+        for candidate in data_candidates:
+            if (candidate / "JPEGImages").is_dir() and (candidate / "Annotations").is_dir():
+                root = candidate
+                break
+        if root is None:
+            for candidate in data_root_path.rglob("VOC2012"):
+                if (candidate / "JPEGImages").is_dir() and (candidate / "Annotations").is_dir():
+                    root = candidate
+                    break
     else:
         candidates = (
             repo_root / "pascal_voc_2012",
             repo_root / "VOCdevkit" / "VOC2012",
+            repo_root / "VOC2012_train_val",
+            repo_root / "VOC2012_train_val" / "VOC2012",
             repo_root / "pascal_voc_2012" / "VOCdevkit" / "VOC2012",
             repo_root / "VOC2012",
         )
-        root = None
         for candidate in candidates:
             if (candidate / "JPEGImages").is_dir() and (candidate / "Annotations").is_dir():
                 root = candidate
