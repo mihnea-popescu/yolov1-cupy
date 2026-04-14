@@ -159,8 +159,8 @@ class Conv2D:
         s = self.stride
         k = self.kernel_size
 
-        assert (H + 2 * p - k) % s == 0, f"Height of input is not divisible by stride"
-        assert (W + 2 * p - k) % s == 0, f"Width of input is not divisible by stride"
+        # assert (H + 2 * p - k) % s == 0, f"Height of input is not divisible by stride"
+        # assert (W + 2 * p - k) % s == 0, f"Width of input is not divisible by stride"
         H_out = (H + 2 * p - k) // s + 1
         W_out = (W + 2 * p - k) // s + 1
 

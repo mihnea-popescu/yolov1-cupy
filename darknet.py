@@ -4,6 +4,7 @@ import cupy as cp
 import numpy as np
 
 from conv2d import Conv2D
+from batchnorm2d import BatchNorm2D
 from global_avg_pool2d import GlobalAvgPool2D
 from leaky_relu import LeakyReLU
 from linear import Linear
@@ -28,102 +29,91 @@ class Darknet:
         self.num_classes = num_classes
 
         self.layers = [
-            # 1
-            Conv2D(3, 64, kernel_size=7, stride=2, padding=3, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(3, 64, kernel_size=7, stride=2, padding=3, bias=False, dtype=dtype),
+          BatchNorm2D(64, dtype=dtype),
+          LeakyReLU(negative_slope),
+          MaxPool2D(2, 2),
 
-            MaxPool2D(2, 2),
+          Conv2D(64, 192, kernel_size=3, stride=1, padding=1, bias=False, dtype=dtype),
+          BatchNorm2D(192, dtype=dtype),
+          LeakyReLU(negative_slope),
+          MaxPool2D(2, 2),
 
-            # 2
-            Conv2D(64, 192, kernel_size=3, stride=1, padding=1, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(192, 128, kernel_size=1, stride=1, padding=0, bias=False, dtype=dtype),
+          BatchNorm2D(128, dtype=dtype),
+          LeakyReLU(negative_slope),
 
-            MaxPool2D(2, 2),
+          Conv2D(128, 256, kernel_size=3, stride=1, padding=1, bias=False, dtype=dtype),
+          BatchNorm2D(256, dtype=dtype),
+          LeakyReLU(negative_slope),
 
-            # 3
-            Conv2D(192, 128, kernel_size=1, stride=1, padding=0, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(256, 256, kernel_size=1, stride=1, padding=0, bias=False, dtype=dtype),
+          BatchNorm2D(256, dtype=dtype),
+          LeakyReLU(negative_slope),
 
-            # 4
-            Conv2D(128, 256, kernel_size=3, stride=1, padding=1, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(256, 512, kernel_size=3, stride=1, padding=1, bias=False, dtype=dtype),
+          BatchNorm2D(512, dtype=dtype),
+          LeakyReLU(negative_slope),
+          MaxPool2D(2, 2),
 
-            # 5
-            Conv2D(256, 256, kernel_size=1, stride=1, padding=0, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(512, 256, kernel_size=1, stride=1, padding=0, bias=False, dtype=dtype),
+          BatchNorm2D(256, dtype=dtype),
+          LeakyReLU(negative_slope),
 
-            # 6
-            Conv2D(256, 512, kernel_size=3, stride=1, padding=1, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(256, 512, kernel_size=3, stride=1, padding=1, bias=False, dtype=dtype),
+          BatchNorm2D(512, dtype=dtype),
+          LeakyReLU(negative_slope),
 
-            MaxPool2D(2, 2),
+          Conv2D(512, 256, kernel_size=1, stride=1, padding=0, bias=False, dtype=dtype),
+          BatchNorm2D(256, dtype=dtype),
+          LeakyReLU(negative_slope),
 
-            # 7
-            Conv2D(512, 256, kernel_size=1, stride=1, padding=0, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(256, 512, kernel_size=3, stride=1, padding=1, bias=False, dtype=dtype),
+          BatchNorm2D(512, dtype=dtype),
+          LeakyReLU(negative_slope),
 
-            # 8
-            Conv2D(256, 512, kernel_size=3, stride=1, padding=1, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(512, 256, kernel_size=1, stride=1, padding=0, bias=False, dtype=dtype),
+          BatchNorm2D(256, dtype=dtype),
+          LeakyReLU(negative_slope),
 
-            # 9
-            Conv2D(512, 256, kernel_size=1, stride=1, padding=0, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(256, 512, kernel_size=3, stride=1, padding=1, bias=False, dtype=dtype),
+          BatchNorm2D(512, dtype=dtype),
+          LeakyReLU(negative_slope),
 
-            # 10
-            Conv2D(256, 512, kernel_size=3, stride=1, padding=1, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(512, 256, kernel_size=1, stride=1, padding=0, bias=False, dtype=dtype),
+          BatchNorm2D(256, dtype=dtype),
+          LeakyReLU(negative_slope),
 
-            # 11
-            Conv2D(512, 256, kernel_size=1, stride=1, padding=0, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(256, 512, kernel_size=3, stride=1, padding=1, bias=False, dtype=dtype),
+          BatchNorm2D(512, dtype=dtype),
+          LeakyReLU(negative_slope),
 
-            # 12
-            Conv2D(256, 512, kernel_size=3, stride=1, padding=1, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(512, 512, kernel_size=1, stride=1, padding=0, bias=False, dtype=dtype),
+          BatchNorm2D(512, dtype=dtype),
+          LeakyReLU(negative_slope),
 
-            # 13
-            Conv2D(512, 256, kernel_size=1, stride=1, padding=0, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(512, 1024, kernel_size=3, stride=1, padding=1, bias=False, dtype=dtype),
+          BatchNorm2D(1024, dtype=dtype),
+          LeakyReLU(negative_slope),
+          MaxPool2D(2, 2),
 
-            # 14
-            Conv2D(256, 512, kernel_size=3, stride=1, padding=1, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(1024, 512, kernel_size=1, stride=1, padding=0, bias=False, dtype=dtype),
+          BatchNorm2D(512, dtype=dtype),
+          LeakyReLU(negative_slope),
 
-            # 15
-            Conv2D(512, 512, kernel_size=1, stride=1, padding=0, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(512, 1024, kernel_size=3, stride=1, padding=1, bias=False, dtype=dtype),
+          BatchNorm2D(1024, dtype=dtype),
+          LeakyReLU(negative_slope),
 
-            # 16
-            Conv2D(512, 1024, kernel_size=3, stride=1, padding=1, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(1024, 512, kernel_size=1, stride=1, padding=0, bias=False, dtype=dtype),
+          BatchNorm2D(512, dtype=dtype),
+          LeakyReLU(negative_slope),
 
-            MaxPool2D(2, 2),
-
-            # 17
-            Conv2D(1024, 512, kernel_size=1, stride=1, padding=0, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
-
-            # 18
-            Conv2D(512, 1024, kernel_size=3, stride=1, padding=1, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
-
-            # 19
-            Conv2D(1024, 512, kernel_size=1, stride=1, padding=0, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
-
-            # 20
-            Conv2D(512, 1024, kernel_size=3, stride=1, padding=1, bias=True, dtype=dtype),
-            LeakyReLU(negative_slope),
+          Conv2D(512, 1024, kernel_size=3, stride=1, padding=1, bias=False, dtype=dtype),
+          BatchNorm2D(1024, dtype=dtype),
+          LeakyReLU(negative_slope),
         ]
-
-        # For 224x224 input:
-        # 224 -> conv7 s2 -> 112
-        # -> pool -> 56
-        # -> pool -> 28
-        # -> pool -> 14
-        # -> pool -> 7
-        # final tensor: (N, 1024, 7, 7)
+        
         self.gap = GlobalAvgPool2D()
         self.fc = Linear(1024, num_classes, bias=True)
 
@@ -135,14 +125,6 @@ class Darknet:
             x = layer.forward(x)
 
         x = self.gap.forward(x)
-
-        # In case GAP returns (N, C, 1, 1), squeeze to (N, C)
-        if x.ndim == 4:
-            assert x.shape[2] == 1 and x.shape[3] == 1, (
-                f"Expected GAP output spatial size 1x1, got {x.shape}"
-            )
-            x = x.reshape(x.shape[0], x.shape[1])
-
         return self.fc.forward(x)
 
     def backward(self, grad_logits: cp.ndarray) -> cp.ndarray:
@@ -152,11 +134,6 @@ class Darknet:
         )
 
         grad = self.fc.backward(grad_logits)
-
-        # If GAP.backward expects NCHW, reshape from (N, C) -> (N, C, 1, 1)
-        if grad.ndim == 2:
-            grad = grad.reshape(grad.shape[0], grad.shape[1], 1, 1)
-
         grad = self.gap.backward(grad)
 
         for layer in reversed(self.layers):
@@ -164,29 +141,53 @@ class Darknet:
 
         return grad
 
-    def zero_grad(self) -> None:
-        """Clear stored gradients before backward if your layers accumulate grads."""
+    def zero_grad(self):
         for layer in self.layers:
             if isinstance(layer, Conv2D):
                 layer.dW = cp.zeros_like(layer.weights)
                 if layer.bias is not None:
                     layer.db = cp.zeros_like(layer.bias)
+            
+            elif isinstance(layer, BatchNorm2D):
+                if layer.affine:
+                    layer.dgamma = cp.zeros_like(layer.gamma)
+                    layer.dbeta = cp.zeros_like(layer.beta)
+            
+            elif isinstance(layer, LeakyReLU):
+                continue
+            
+            elif isinstance(MaxPool2D):
+                continue
+                
+            else:
+                raise NotImplementedError("Unsupported layer")
 
         self.fc.dW = cp.zeros_like(self.fc.W)
         if self.fc.use_bias:
             self.fc.db = cp.zeros_like(self.fc.b)
 
-    def sgd_step(self, learning_rate: float) -> None:
-        """Apply one SGD update: param -= lr * grad."""
+    def sgd_step(self, learning_rate: float):
         lr = float(learning_rate)
 
         for layer in self.layers:
             if isinstance(layer, Conv2D):
-                assert layer.dW is not None, "Call backward() before sgd_step()"
                 layer.weights -= lr * layer.dW
                 if layer.bias is not None:
-                    assert layer.db is not None
                     layer.bias -= lr * layer.db
+
+            elif isinstance(layer, BatchNorm2D):
+                if layer.affine:
+                    layer.gamma -= lr * layer.dgamma
+                    layer.beta -= lr * layer.dbeta
+                    
+            elif isinstance(layer, LeakyReLU):
+                continue
+                
+            elif isinstance(MaxPool2D):
+                continue
+            
+            else:
+                raise NotImplementedError("Unsupported layer")
 
         self.fc.W -= lr * self.fc.dW
         if self.fc.use_bias:
