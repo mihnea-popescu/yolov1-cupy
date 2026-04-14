@@ -134,6 +134,7 @@ def _find_voc_root(repo_root, data_root=None):
             data_root_path / "VOC2012",
             data_root_path / "VOCdevkit" / "VOC2012",
             data_root_path / "VOC2012_train_val",
+            data_root_path / "VOC2012_train_val" / "VOC2012_train_val",
             data_root_path / "VOC2012_train_val" / "VOC2012",
             data_root_path / "VOC2012_train_val" / "VOCdevkit" / "VOC2012",
         )
@@ -151,6 +152,7 @@ def _find_voc_root(repo_root, data_root=None):
             repo_root / "pascal_voc_2012",
             repo_root / "VOCdevkit" / "VOC2012",
             repo_root / "VOC2012_train_val",
+            repo_root / "VOC2012_train_val" / "VOC2012_train_val",
             repo_root / "VOC2012_train_val" / "VOC2012",
             repo_root / "pascal_voc_2012" / "VOCdevkit" / "VOC2012",
             repo_root / "VOC2012",
