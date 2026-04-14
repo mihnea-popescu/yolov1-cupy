@@ -1,0 +1,88 @@
+train samples: 10400, train batches: 1300
+val samples:   2600, val batches:   325
+{'n02056570': 0, 'n02085936': 1, 'n02128757': 2, 'n02690373': 3, 'n02692877': 4, 'n03095699': 5, 'n04254680': 6, 'n04285008': 7, 'n04467665': 8, 'n07747607': 9}
+Epoch 1/50 [train]: 100%
+ 1300/1300 [01:47<00:00, 13.20batch/s, loss=1.5429 acc=0.454 dp=0.004s fb=0.072s]
+Epoch 1/50 [val]: 100%
+ 325/325 [00:12<00:00, 25.14batch/s, loss=1.2822 acc=0.558]
+epoch 1/50 done — train loss 1.5429 train acc 0.4538 | val loss 1.2822 val acc 0.5577
+Epoch 2/50 [train]: 100%
+ 1300/1300 [01:38<00:00, 13.25batch/s, loss=1.0807 acc=0.639 dp=0.004s fb=0.070s]
+Epoch 2/50 [val]: 100%
+ 325/325 [00:12<00:00, 25.32batch/s, loss=1.0794 acc=0.633]
+epoch 2/50 done — train loss 1.0807 train acc 0.6388 | val loss 1.0794 val acc 0.6331
+Epoch 3/50 [train]: 100%
+ 1300/1300 [01:38<00:00, 13.30batch/s, loss=0.8242 acc=0.732 dp=0.004s fb=0.071s]
+Epoch 3/50 [val]: 100%
+ 325/325 [00:12<00:00, 25.37batch/s, loss=0.7660 acc=0.755]
+epoch 3/50 done — train loss 0.8242 train acc 0.7323 | val loss 0.7660 val acc 0.7550
+Epoch 4/50 [train]: 100%
+ 1300/1300 [01:38<00:00, 13.05batch/s, loss=0.6651 acc=0.787 dp=0.004s fb=0.070s]
+Epoch 4/50 [val]: 100%
+ 325/325 [00:12<00:00, 25.23batch/s, loss=0.7426 acc=0.760]
+epoch 4/50 done — train loss 0.6651 train acc 0.7875 | val loss 0.7426 val acc 0.7600
+Epoch 5/50 [train]: 100%
+ 1300/1300 [01:38<00:00, 13.20batch/s, loss=0.5346 acc=0.827 dp=0.004s fb=0.070s]
+Epoch 5/50 [val]: 100%
+ 325/325 [00:12<00:00, 24.94batch/s, loss=0.6410 acc=0.783]
+epoch 5/50 done — train loss 0.5346 train acc 0.8268 | val loss 0.6410 val acc 0.7831
+saved weights to /content/yolov1-cupy/darknet_pretrained-epoch5.npz
+Epoch 6/50 [train]: 100%
+ 1300/1300 [01:38<00:00, 13.19batch/s, loss=0.4206 acc=0.864 dp=0.004s fb=0.070s]
+Epoch 6/50 [val]: 100%
+ 325/325 [00:12<00:00, 25.32batch/s, loss=0.6512 acc=0.794]
+epoch 6/50 done — train loss 0.4206 train acc 0.8641 | val loss 0.6512 val acc 0.7942
+Epoch 7/50 [train]: 100%
+ 1300/1300 [01:38<00:00, 13.20batch/s, loss=0.3699 acc=0.877 dp=0.004s fb=0.070s]
+Epoch 7/50 [val]: 100%
+ 325/325 [00:12<00:00, 25.50batch/s, loss=0.5703 acc=0.818]
+epoch 7/50 done — train loss 0.3699 train acc 0.8772 | val loss 0.5703 val acc 0.8185
+Epoch 8/50 [train]: 100%
+ 1300/1300 [01:38<00:00, 13.36batch/s, loss=0.3089 acc=0.902 dp=0.004s fb=0.071s]
+Epoch 8/50 [val]: 100%
+ 325/325 [00:12<00:00, 25.32batch/s, loss=0.5883 acc=0.817]
+epoch 8/50 done — train loss 0.3089 train acc 0.9017 | val loss 0.5883 val acc 0.8173
+Epoch 9/50 [train]: 100%
+ 1300/1300 [01:38<00:00, 13.17batch/s, loss=0.2355 acc=0.926 dp=0.004s fb=0.071s]
+Epoch 9/50 [val]: 100%
+ 325/325 [00:12<00:00, 25.28batch/s, loss=0.5504 acc=0.834]
+epoch 9/50 done — train loss 0.2355 train acc 0.9256 | val loss 0.5504 val acc 0.8338
+Epoch 10/50 [train]: 100%
+ 1300/1300 [01:38<00:00, 13.09batch/s, loss=0.1863 acc=0.942 dp=0.004s fb=0.075s]
+Epoch 10/50 [val]: 100%
+ 325/325 [00:12<00:00, 25.42batch/s, loss=0.5470 acc=0.835]
+epoch 10/50 done — train loss 0.1863 train acc 0.9418 | val loss 0.5470 val acc 0.8346
+saved weights to /content/yolov1-cupy/darknet_pretrained-epoch10.npz
+Epoch 11/50 [train]: 100%
+ 1300/1300 [01:38<00:00, 13.04batch/s, loss=0.1624 acc=0.947 dp=0.004s fb=0.071s]
+Epoch 11/50 [val]: 100%
+ 325/325 [00:12<00:00, 25.16batch/s, loss=0.6483 acc=0.826]
+epoch 11/50 done — train loss 0.1624 train acc 0.9469 | val loss 0.6483 val acc 0.8258
+Epoch 12/50 [train]: 100%
+ 1300/1300 [01:39<00:00, 13.18batch/s, loss=0.1414 acc=0.953 dp=0.004s fb=0.084s]
+Epoch 12/50 [val]: 100%
+ 325/325 [00:12<00:00, 25.40batch/s, loss=0.5489 acc=0.845]
+epoch 12/50 done — train loss 0.1414 train acc 0.9533 | val loss 0.5489 val acc 0.8450
+Epoch 13/50 [train]: 100%
+ 1300/1300 [01:39<00:00, 13.05batch/s, loss=0.1293 acc=0.958 dp=0.004s fb=0.071s]
+Epoch 13/50 [val]: 100%
+ 325/325 [00:12<00:00, 25.02batch/s, loss=0.5455 acc=0.849]
+epoch 13/50 done — train loss 0.1293 train acc 0.9579 | val loss 0.5455 val acc 0.8488
+Epoch 14/50 [train]: 100%
+ 1300/1300 [01:39<00:00, 13.04batch/s, loss=0.1002 acc=0.967 dp=0.004s fb=0.076s]
+Epoch 14/50 [val]: 100%
+ 325/325 [00:13<00:00, 24.69batch/s, loss=0.5143 acc=0.854]
+epoch 14/50 done — train loss 0.1002 train acc 0.9674 | val loss 0.5143 val acc 0.8542
+Epoch 15/50 [train]: 100%
+ 1300/1300 [01:39<00:00, 13.27batch/s, loss=0.0872 acc=0.972 dp=0.004s fb=0.070s]
+Epoch 15/50 [val]: 100%
+ 325/325 [00:12<00:00, 25.32batch/s, loss=0.5645 acc=0.851]
+epoch 15/50 done — train loss 0.0872 train acc 0.9720 | val loss 0.5645 val acc 0.8512
+saved weights to /content/yolov1-cupy/darknet_pretrained-epoch15.npz
+Epoch 16/50 [train]: 100%
+ 1300/1300 [01:39<00:00, 13.11batch/s, loss=0.0827 acc=0.975 dp=0.004s fb=0.073s]
+Epoch 16/50 [val]: 100%
+ 325/325 [00:12<00:00, 25.30batch/s, loss=0.5411 acc=0.858]
+epoch 16/50 done — train loss 0.0827 train acc 0.9752 | val loss 0.5411 val acc 0.8585
+Epoch 17/50 [train]:  50%
+ 656/1300 [00:50<00:49, 13.06batch/s, loss=0.0435 acc=0.987 dp=0.004s fb=0.071s]
