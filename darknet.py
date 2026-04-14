@@ -156,7 +156,7 @@ class Darknet:
             elif isinstance(layer, LeakyReLU):
                 continue
             
-            elif isinstance(MaxPool2D):
+            elif isinstance(layer, MaxPool2D):
                 continue
                 
             else:
@@ -183,7 +183,7 @@ class Darknet:
             elif isinstance(layer, LeakyReLU):
                 continue
                 
-            elif isinstance(MaxPool2D):
+            elif isinstance(layer, MaxPool2D):
                 continue
             
             else:
