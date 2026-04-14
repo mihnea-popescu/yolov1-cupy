@@ -195,7 +195,6 @@ class Darknet:
 
     def save_weights(self, path: str | Path) -> None:
         path = Path(path)
-
         payload = {
             "num_classes": np.array([self.fc.out_features], dtype=np.int64),
         }
@@ -214,12 +213,8 @@ class Darknet:
                 if layer.affine:
                     payload[f"bn{bn_idx}_gamma"] = cp.asnumpy(layer.gamma)
                     payload[f"bn{bn_idx}_beta"] = cp.asnumpy(layer.beta)
-
-                if hasattr(layer, "running_mean"):
-                    payload[f"bn{bn_idx}_running_mean"] = cp.asnumpy(layer.running_mean)
-                if hasattr(layer, "running_var"):
-                    payload[f"bn{bn_idx}_running_var"] = cp.asnumpy(layer.running_var)
-
+                payload[f"bn{bn_idx}_running_mean"] = cp.asnumpy(layer.running_mean)
+                payload[f"bn{bn_idx}_running_var"] = cp.asnumpy(layer.running_var)
                 bn_idx += 1
 
         payload["fc_W"] = cp.asnumpy(self.fc.W)
@@ -242,63 +237,29 @@ class Darknet:
 
         for layer in self.layers:
             if isinstance(layer, Conv2D):
-                key_w = f"conv{conv_idx}_weights"
-                if key_w not in data:
-                    raise KeyError(f"Missing {key_w}")
-
-                w = cp.asarray(data[key_w], dtype=self.dtype)
-                layer.weights[...] = w
+                layer.weights = cp.asarray(data[f"conv{conv_idx}_weights"], dtype=self.dtype)
 
                 key_b = f"conv{conv_idx}_bias"
                 if layer.bias is not None:
-                    if key_b not in data:
-                        raise KeyError(f"Missing {key_b}")
-                    b = cp.asarray(data[key_b], dtype=self.dtype)
-                    layer.bias[...] = b
-                
+                    if key_b not in data.files:
+                        raise KeyError(f"Missing {key_b} in checkpoint")
+                    layer.bias = cp.asarray(data[key_b], dtype=self.dtype)
+
                 conv_idx += 1
 
             elif isinstance(layer, BatchNorm2D):
                 if layer.affine:
-                    key_g = f"bn{bn_idx}_gamma"
-                    key_b = f"bn{bn_idx}_beta"
-                    if key_g not in data or key_b not in data:
-                        raise KeyError(f"Missing BN affine params for bn{bn_idx}")
+                    layer.gamma = cp.asarray(data[f"bn{bn_idx}_gamma"], dtype=self.dtype)
+                    layer.beta = cp.asarray(data[f"bn{bn_idx}_beta"], dtype=self.dtype)
 
-                    gamma = cp.asarray(data[key_g], dtype=self.dtype)
-                    beta = cp.asarray(data[key_b], dtype=self.dtype)
-
-                    layer.gamma[...] = gamma
-                    layer.beta[...] = beta
-
-                if hasattr(layer, "running_mean"):
-                    key = f"bn{bn_idx}_running_mean"
-                    if key in data:
-                        rm = cp.asarray(data[key], dtype=self.dtype)
-                        layer.running_mean[...] = rm
-
-                if hasattr(layer, "running_var"):
-                    key = f"bn{bn_idx}_running_var"
-                    if key in data:
-                        rv = cp.asarray(data[key], dtype=self.dtype)
-                        layer.running_var[...] = rv
+                layer.running_mean = cp.asarray(data[f"bn{bn_idx}_running_mean"], dtype=self.dtype)
+                layer.running_var = cp.asarray(data[f"bn{bn_idx}_running_var"], dtype=self.dtype)
 
                 bn_idx += 1
 
-        if "fc_W" not in data:
-            raise KeyError("Missing fc_W")
-        W = cp.asarray(data["fc_W"], dtype=self.dtype)
-        if W.shape != self.fc.W.shape:
-            raise ValueError(f"fc_W shape mismatch: {W.shape} vs {self.fc.W.shape}")
-        self.fc.W[...] = W
-
+        self.fc.W = cp.asarray(data["fc_W"], dtype=self.dtype)
         if self.fc.use_bias:
-            if "fc_b" not in data:
-                raise KeyError("Missing fc_b")
-            b = cp.asarray(data["fc_b"], dtype=self.dtype)
-            if b.shape != self.fc.b.shape:
-                raise ValueError(f"fc_b shape mismatch: {b.shape} vs {self.fc.b.shape}")
-            self.fc.b[...] = b
+            self.fc.b = cp.asarray(data["fc_b"], dtype=self.dtype)
 
     def __call__(self, x: cp.ndarray) -> cp.ndarray:
         return self.forward(x)
