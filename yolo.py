@@ -234,14 +234,13 @@ class YOLO:
 
     def save_weights(self, path: str | Path) -> None:
         path = Path(path)
-        payload = {
-            "num_classes": np.array([self.fc.out_features], dtype=np.int64),
-        }
+        payload = {}
         conv_idx = 0
         bn_idx = 0
         fc_idx = 0
-        
         def save_layer(layer):
+            nonlocal conv_idx, bn_idx, fc_idx
+
             if isinstance(layer, Conv2D):
                 payload[f"conv{conv_idx}_weights"] = cp.asnumpy(layer.weights)
                 if layer.bias is not None:
@@ -255,9 +254,9 @@ class YOLO:
                 payload[f"bn{bn_idx}_running_var"] = cp.asnumpy(layer.running_var)
                 bn_idx += 1
             elif isinstance(layer, Linear):
-                payload[f"fc{fc_idx}_W"] = cp.asnumpy(layer)
+                payload[f"fc{fc_idx}_W"] = cp.asnumpy(layer.W)
                 if layer.use_bias:
-                    payload[f"fc{fc_idx}_b"] = cp.asnumpy(layer)
+                    payload[f"fc{fc_idx}_b"] = cp.asnumpy(layer.b)
                 fc_idx += 1
 
         for layer in self.backbone:
@@ -271,18 +270,11 @@ class YOLO:
         path = Path(path)
         data = np.load(path, allow_pickle=False)
 
-        nc = int(data["num_classes"][0])
-        assert nc == self.fc.out_features, (
-            f"Checkpoint has num_classes={nc}, model has {self.fc.out_features}"
-        )
-        
-        
-
         conv_idx = 0
         bn_idx = 0
         fc_idx = 0
-
         def load_layer(layer):
+            nonlocal conv_idx, bn_idx, fc_idx
             if isinstance(layer, Conv2D):
                 layer.weights = cp.asarray(data[f"conv{conv_idx}_weights"], dtype=self.dtype)
 
