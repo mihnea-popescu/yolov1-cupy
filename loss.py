@@ -287,22 +287,32 @@ def yolo_loss_grad(
             base = b_pred * 5
             px = preds[..., base + 0]           # (N,S,S)
             py = preds[..., base + 1]
-            pw = cp.clip(preds[..., base + 2], 1e-9, None)
-            ph = cp.clip(preds[..., base + 3], 1e-9, None)
+            pw_raw = preds[..., base + 2]
+            ph_raw = preds[..., base + 3]
             pc = preds[..., base + 4]
 
             # dL/d(x) = 2 λ_coord * active * (pred_x - gt_x)
             grad[..., base + 0] += 2.0 * lambda_coord * active * (px - gt_x)
             grad[..., base + 1] += 2.0 * lambda_coord * active * (py - gt_y)
 
-            # dL/d(w) via chain rule through sqrt:
-            #   d/dw [ (√w - √ĝw)² ] = 2(√w - √ĝw) · 1/(2√w) = (√w - √ĝw)/√w
+            # dL/d(w) via chain rule through sqrt(clip(w, eps, inf)):
+            #   d/dw [ (√w - √ĝw)² ] = (√w - √ĝw)/√w   if w > eps
+            #                       = 0                 if w <= eps (clipped branch)
+            # The old code used sqrt(max(w, eps)) in the denominator, which makes
+            # the gradient diverge (~ -√gt_w / 6e-5) whenever the raw prediction
+            # is negative -- a catastrophic blow-up on randomly-initialised heads.
+            pw_clip_eps = 1e-9
+            ph_clip_eps = 1e-9
+            w_valid = (pw_raw > pw_clip_eps).astype(preds.dtype)
+            h_valid = (ph_raw > ph_clip_eps).astype(preds.dtype)
+            pw = cp.maximum(pw_raw, pw_clip_eps)
+            ph = cp.maximum(ph_raw, ph_clip_eps)
             grad[..., base + 2] += (
-                2.0 * lambda_coord * active
+                2.0 * lambda_coord * active * w_valid
                 * (cp.sqrt(pw) - cp.sqrt(gt_w)) / (2.0 * cp.sqrt(pw))
             )
             grad[..., base + 3] += (
-                2.0 * lambda_coord * active
+                2.0 * lambda_coord * active * h_valid
                 * (cp.sqrt(ph) - cp.sqrt(gt_h)) / (2.0 * cp.sqrt(ph))
             )
 
