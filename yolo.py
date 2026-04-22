@@ -10,6 +10,7 @@ from leaky_relu import LeakyReLU
 from linear import Linear
 from maxpool import MaxPool2D
 from flatten import Flatten
+from dropout import Dropout
 
 
 class YOLO:
@@ -133,13 +134,12 @@ class YOLO:
             LeakyReLU(negative_slope),
             
             Flatten(),
-            
+
             Linear(50176, 4096, bias=False),
-            #BatchNorm2D(4096, dtype=dtype),
+            Dropout(p=0.5),
             LeakyReLU(negative_slope),
-            
+
             Linear(4096, 7 * 7 * 30, bias=False),
-            LeakyReLU(negative_slope),
         ]
 
     def forward(self, x: cp.ndarray) -> cp.ndarray:
@@ -154,10 +154,12 @@ class YOLO:
 
     def backward(self, grad_logits: cp.ndarray) -> cp.ndarray:
         assert grad_logits.ndim == 2, f"Expected 2D logits grad, got {grad_logits.shape}"
-        assert grad_logits.shape[1] == self.fc.out_features, (
-            f"Expected (*, {self.fc.out_features}), got {grad_logits.shape}"
+        final_out_features = self.head[-1].out_features
+        assert grad_logits.shape[1] == final_out_features, (
+            f"Expected (*, {final_out_features}), got {grad_logits.shape}"
         )
-        
+
+        grad = grad_logits
         for layer in reversed(self.head):
             grad = layer.backward(grad)
         for layer in reversed(self.backbone):
@@ -183,13 +185,16 @@ class YOLO:
                 
         elif isinstance(layer, Flatten):
             pass
-        
+
+        elif isinstance(layer, Dropout):
+            pass
+
         elif isinstance(layer, LeakyReLU):
             pass
-        
+
         elif isinstance(layer, MaxPool2D):
             pass
-            
+
         else:
             raise NotImplementedError("Unsupported layer")
 
@@ -211,16 +216,22 @@ class YOLO:
                 layer.beta -= lr * layer.dbeta
                 
         elif isinstance(layer, Linear):
-            layer.W -= lr * self.fc.dW
+            layer.W -= lr * layer.dW
             if layer.use_bias:
                 layer.b -= lr * layer.db
-                
+
+        elif isinstance(layer, Flatten):
+            pass
+
+        elif isinstance(layer, Dropout):
+            pass
+
         elif isinstance(layer, LeakyReLU):
             pass
-            
+
         elif isinstance(layer, MaxPool2D):
             pass
-        
+
         else:
             raise NotImplementedError("Unsupported layer")
 
@@ -230,7 +241,93 @@ class YOLO:
             self._sgd_step_helper(layer, lr)
         for layer in self.head:
             self._sgd_step_helper(layer, lr)
-        
+
+    def init_optimizer(self) -> None:
+        """Allocate zero-initialized momentum (velocity) buffers for all trainable params.
+
+        Must be called once before the first `sgd_momentum_step`.
+        """
+        for layer in list(self.backbone) + list(self.head):
+            if isinstance(layer, Conv2D):
+                layer.vW = cp.zeros_like(layer.weights)
+                if layer.bias is not None:
+                    layer.vb = cp.zeros_like(layer.bias)
+            elif isinstance(layer, BatchNorm2D):
+                if layer.affine:
+                    layer.vgamma = cp.zeros_like(layer.gamma)
+                    layer.vbeta = cp.zeros_like(layer.beta)
+            elif isinstance(layer, Linear):
+                layer.vW = cp.zeros_like(layer.W)
+                if layer.use_bias:
+                    layer.vb = cp.zeros_like(layer.b)
+
+    def _sgd_momentum_step_helper(
+        self,
+        layer,
+        lr: float,
+        momentum: float,
+        weight_decay: float,
+    ) -> None:
+        if isinstance(layer, Conv2D):
+            layer.vW = momentum * layer.vW + layer.dW + weight_decay * layer.weights
+            layer.weights -= lr * layer.vW
+            if layer.bias is not None:
+                layer.vb = momentum * layer.vb + layer.db
+                layer.bias -= lr * layer.vb
+
+        elif isinstance(layer, BatchNorm2D):
+            if layer.affine:
+                layer.vgamma = momentum * layer.vgamma + layer.dgamma + weight_decay * layer.gamma
+                layer.gamma -= lr * layer.vgamma
+                layer.vbeta = momentum * layer.vbeta + layer.dbeta + weight_decay * layer.beta
+                layer.beta -= lr * layer.vbeta
+
+        elif isinstance(layer, Linear):
+            layer.vW = momentum * layer.vW + layer.dW + weight_decay * layer.W
+            layer.W -= lr * layer.vW
+            if layer.use_bias:
+                layer.vb = momentum * layer.vb + layer.db
+                layer.b -= lr * layer.vb
+
+        elif isinstance(layer, (Flatten, Dropout, LeakyReLU, MaxPool2D)):
+            pass
+
+        else:
+            raise NotImplementedError("Unsupported layer")
+
+    def sgd_momentum_step(
+        self,
+        learning_rate: float,
+        momentum: float = 0.9,
+        weight_decay: float = 5e-4,
+    ) -> None:
+        """SGD with Polyak momentum and L2 weight decay (paper recipe).
+
+        v = momentum * v + dW + weight_decay * W
+        W -= lr * v
+
+        Weight decay applies to conv weights, BN gamma/beta, and linear W.
+        It is not applied to biases (convention).
+        """
+        lr = float(learning_rate)
+        m = float(momentum)
+        wd = float(weight_decay)
+        for layer in self.backbone:
+            self._sgd_momentum_step_helper(layer, lr, m, wd)
+        for layer in self.head:
+            self._sgd_momentum_step_helper(layer, lr, m, wd)
+
+    def train(self, mode: bool = True) -> None:
+        """Put BN/Dropout into training mode."""
+        for layer in list(self.backbone) + list(self.head):
+            if isinstance(layer, (BatchNorm2D, Dropout)):
+                layer.train(mode)
+
+    def eval(self) -> None:
+        """Put BN/Dropout into evaluation mode."""
+        for layer in list(self.backbone) + list(self.head):
+            if isinstance(layer, (BatchNorm2D, Dropout)):
+                layer.eval()
 
     def save_weights(self, path: str | Path) -> None:
         path = Path(path)
