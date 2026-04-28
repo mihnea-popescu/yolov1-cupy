@@ -1,6 +1,15 @@
 """
 YOLOv1 loss function — Redmon et al. (2016), Equation 3.
 
+Deviation from the paper:
+  The class probability term (Term 5 in Eq. 3) uses softmax + cross-entropy
+  instead of the paper's sum-of-squared-error on raw class outputs. SSE on
+  20-way class outputs gave anemic gradients for under-represented classes
+  and let the head collapse to "predict the most common class everywhere"
+  in our experiments. Softmax+CE is what every modern YOLOv1 reproduction
+  uses and gives well-conditioned per-class gradients. The decoder must
+  apply softmax to the class logits before computing detection scores.
+
 Tensor convention (matches this codebase):
   predictions : (N, S*S*(B*5+C)) flat — raw output of YOLO.forward(), or
                 (N, S, S, B*5+C)       — pre-reshaped
@@ -26,6 +35,13 @@ import cupy as cp
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _softmax_classes(logits: cp.ndarray) -> cp.ndarray:
+    """Numerically-stable softmax along the last (class) axis."""
+    z = logits - logits.max(axis=-1, keepdims=True)
+    expz = cp.exp(z)
+    return expz / expz.sum(axis=-1, keepdims=True)
+
 
 def _extract_components(tensor: cp.ndarray, B: int):
     """Split (..., B*5+C) tensor into boxes, confidences, and class probs."""
@@ -140,7 +156,7 @@ def yolo_loss(
     B:             int   = 2,
     C:             int   = 20,
     lambda_coord:  float = 5.0,
-    lambda_noobj:  float = 0.5,
+    lambda_noobj:  float = 0.1,
 ) -> float:
     """
     YOLOv1 multi-part loss (Equation 3 of Redmon et al. 2016).
@@ -214,9 +230,15 @@ def yolo_loss(
     loss_noobj = lambda_noobj * (noobj_ij * pred_conf ** 2).sum()
 
     # ------------------------------------------------------------------
-    # Term 5: class probability loss   Σ 1^obj_i Σ_c (p_i(c) - p̂_i(c))²
+    # Term 5: class probability loss — softmax + cross-entropy.
+    #   loss_cls = Σ_{cells with obj}  -Σ_c  tgt_cls(c) * log softmax(pred_cls)(c)
+    # tgt_cls is one-hot at responsible cells (and zero elsewhere); obj_cell
+    # gates the sum to cells that actually contain an object.
     # ------------------------------------------------------------------
-    loss_cls = (obj_cell[..., None] * (pred_cls - tgt_cls) ** 2).sum()
+    sm = _softmax_classes(pred_cls)                                  # (N,S,S,C)
+    log_sm = cp.log(cp.clip(sm, 1e-12, 1.0))
+    ce_per_cell = -(tgt_cls * log_sm).sum(axis=-1)                   # (N,S,S)
+    loss_cls = (obj_cell * ce_per_cell).sum()
 
     total = loss_coord + loss_obj + loss_noobj + loss_cls
     return float(cp.asnumpy(total))
@@ -229,7 +251,7 @@ def yolo_loss_grad(
     B:             int   = 2,
     C:             int   = 20,
     lambda_coord:  float = 5.0,
-    lambda_noobj:  float = 0.5,
+    lambda_noobj:  float = 0.1,
 ) -> cp.ndarray:
     """
     Gradient of the YOLOv1 loss w.r.t. ``predictions``.
@@ -330,9 +352,14 @@ def yolo_loss_grad(
         grad[..., base + 4] += 2.0 * lambda_noobj * noobj_ij[..., b_pred] * pc
 
     # ------------------------------------------------------------------
-    # Gradient from class probability loss.
-    # dL/d(pred_cls_c) = 2 * obj_cell * (pred_cls_c - gt_cls_c)
+    # Gradient from class probability loss (softmax + cross-entropy).
+    # For per-cell softmax sm = softmax(pred_cls) and one-hot tgt_cls:
+    #   dL/d(pred_cls_c) = obj_cell * (sm_c - tgt_cls_c)
+    # This is the standard CE-on-softmax gradient; it pushes the correct
+    # class up and ALL other classes down with magnitudes that don't
+    # vanish near 0 (which is why MSE failed for rare classes).
     # ------------------------------------------------------------------
-    grad[..., B * 5:] += 2.0 * obj_cell[..., None] * (pred_cls - tgt_cls)
+    sm = _softmax_classes(pred_cls)
+    grad[..., B * 5:] += obj_cell[..., None] * (sm - tgt_cls)
 
     return grad.reshape(input_shape)
