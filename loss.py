@@ -241,7 +241,7 @@ def yolo_loss(
     loss_cls = (obj_cell * ce_per_cell).sum()
 
     total = loss_coord + loss_obj + loss_noobj + loss_cls
-    return float(cp.asnumpy(total))
+    return float(cp.asnumpy(total / N))
 
 
 def yolo_loss_grad(
@@ -362,4 +362,4 @@ def yolo_loss_grad(
     sm = _softmax_classes(pred_cls)
     grad[..., B * 5:] += obj_cell[..., None] * (sm - tgt_cls)
 
-    return grad.reshape(input_shape)
+    return grad.reshape(input_shape) / N
