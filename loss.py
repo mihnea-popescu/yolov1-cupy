@@ -1,7 +1,7 @@
 """
 YOLOv1 loss function — Redmon et al. (2016), Equation 3.
 
-Matches the PyTorch reference (nsoul97/yolov1_pytorch) in all key choices:
+Key implementation choices:
 
   1. sqrt(w,h) convention:
        The model's w/h output channels are interpreted as sqrt(w) and sqrt(h).
@@ -15,8 +15,7 @@ Matches the PyTorch reference (nsoul97/yolov1_pytorch) in all key choices:
 
   3. Class loss = SSE on raw outputs (no softmax):
        Each class channel is penalised independently via (pred_c - tgt_c)^2.
-       Matches the paper and prevents person-class dominance through softmax
-       coupling. Decoder uses raw class outputs directly (no softmax needed).
+       Decoder uses raw class outputs directly (no softmax needed).
 
 Tensor convention (matches this codebase):
   predictions : (N, S*S*(B*5+C)) flat — raw output of YOLO.forward(), or
@@ -246,7 +245,7 @@ def yolo_loss(
     # ------------------------------------------------------------------
     # Term 3: object confidence loss   Σ 1^obj_ij (C_i - Ĉ_i)²
     # Target confidence = IoU(responsible pred box, GT box).
-    # Matches PyTorch reference: calibrates confidence to localisation quality.
+    # Target = IoU calibrates confidence to localisation quality.
     # ------------------------------------------------------------------
     loss_obj = (tgt_conf * (resp_pred_conf - resp_iou) ** 2).sum()
 
@@ -259,7 +258,7 @@ def yolo_loss(
     # ------------------------------------------------------------------
     # Term 5: class probability loss — SSE on raw outputs.
     #   loss_cls = Σ_{cells with obj}  Σ_c  (pred_cls_c - tgt_cls_c)²
-    # Matches PyTorch reference. Each class channel is penalised independently.
+    # Each class channel is penalised independently.
     # No softmax — decoder uses raw class outputs directly.
     # ------------------------------------------------------------------
     diff_cls    = pred_cls - tgt_cls                                  # (N,S,S,C)
