@@ -139,7 +139,7 @@ class YOLO:
             Dropout(p=0.5),
             LeakyReLU(negative_slope),
 
-            Linear(4096, 7 * 7 * 30, bias=False),
+            Linear(4096, 7 * 7 * 30, bias=True),
         ]
 
     def forward(self, x: cp.ndarray) -> cp.ndarray:

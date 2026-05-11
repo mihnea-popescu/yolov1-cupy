@@ -66,29 +66,30 @@ print(f"GT cell (3,3) class:  {targets[0, 3, 3, B*5:]}")
 # ---------------------------------------------------------------------------
 def compute_terms(preds_4d, tgt_4d):
     """Return (t1_xy, t2_wh, t3_obj, t4_noobj, t5_cls) as floats."""
-    a   = _compute_assignments(preds_4d, tgt_4d, S, B)
-    tc  = a['tgt_conf']           # (1,S,S,B)
-    tb  = a['tgt_boxes']          # (1,S,S,B,4)
-    tl  = a['tgt_cls']            # (1,S,S,C)
-    rpb = a['resp_pred_boxes']    # (1,S,S,B,4)
-    rpc = a['resp_pred_conf']     # (1,S,S,B)
-    pc  = a['pred_conf']          # (1,S,S,B)
-    pl  = a['pred_cls']           # (1,S,S,C)
-    nij = a['noobj_ij']           # (1,S,S,B)
-    om  = a['obj_cell']           # (1,S,S)
+    a    = _compute_assignments(preds_4d, tgt_4d, S, B)
+    tc   = a['tgt_conf']           # (1,S,S,B)
+    tb   = a['tgt_boxes']          # (1,S,S,B,4)
+    tl   = a['tgt_cls']            # (1,S,S,C)
+    rpb  = a['resp_pred_boxes']    # (1,S,S,B,4)  — channels 2,3 are pred_sqrt_w/h
+    rpc  = a['resp_pred_conf']     # (1,S,S,B)
+    riou = a['resp_iou']           # (1,S,S,B)  — IoU of responsible pred vs GT
+    pc   = a['pred_conf']          # (1,S,S,B)
+    pl   = a['pred_cls']           # (1,S,S,C)
+    nij  = a['noobj_ij']           # (1,S,S,B)
+    om   = a['obj_cell']           # (1,S,S)
 
     dx = rpb[..., 0] - tb[..., 0]
     dy = rpb[..., 1] - tb[..., 1]
     t1 = LC * float((tc * (dx**2 + dy**2)).sum())
 
-    pw = np.clip(rpb[..., 2], 1e-9, None)
-    ph = np.clip(rpb[..., 3], 1e-9, None)
+    # sqrt_wh convention: pred channels 2,3 = sqrt(w)/sqrt(h); targets store raw w/h.
     gw = np.clip(tb[..., 2], 0.0, None)
     gh = np.clip(tb[..., 3], 0.0, None)
-    t2 = LC * float((tc * ((np.sqrt(pw) - np.sqrt(gw))**2
-                          + (np.sqrt(ph) - np.sqrt(gh))**2)).sum())
+    t2 = LC * float((tc * ((rpb[..., 2] - np.sqrt(gw))**2
+                          + (rpb[..., 3] - np.sqrt(gh))**2)).sum())
 
-    t3 = float((tc * (rpc - 1.0)**2).sum())
+    # Confidence target = IoU (not 1.0).
+    t3 = float((tc * (rpc - riou)**2).sum())
     t4 = LN * float((nij * pc**2).sum())
     t5 = float((om[..., None] * (pl - tl)**2).sum())
 
@@ -113,12 +114,16 @@ def report(t1, t2, t3, t4, t5):
 
 
 # ===========================================================================
-# TEST A — Perfect predictions (pred == target)
+# TEST A — Perfect predictions (pred == target in new sqrt_wh convention)
 # ===========================================================================
-section("TEST A — Perfect predictions (pred == target)")
+section("TEST A — Perfect predictions (pred_sqrt_w = √gt_w, pred_sqrt_h = √gt_h)")
 
+# In the new convention pred channels 2,3 store sqrt(w) and sqrt(h).
+# A "perfect" prediction therefore needs pred_sqrt_w = sqrt(gt_w), NOT gt_w itself.
 perf = targets.copy()
-print("\nInput: predictions copied verbatim from targets.")
+perf[0, 3, 3, 2] = np.sqrt(targets[0, 3, 3, 2])  # pred_sqrt_w = √0.3 ≈ 0.5477
+perf[0, 3, 3, 3] = np.sqrt(targets[0, 3, 3, 3])  # pred_sqrt_h = √0.4 ≈ 0.6325
+print("\nInput: perfect predictions (xy/conf/class from target; w/h = sqrt(gt_w/h)).")
 
 t1, t2, t3, t4, t5 = compute_terms(perf, targets)
 report(t1, t2, t3, t4, t5)
@@ -141,58 +146,60 @@ for name, val in [("xy coord", t1), ("wh size", t2), ("obj conf", t3),
 # ===========================================================================
 # TEST B — Slightly wrong coordinates (noise only on GT-cell coords)
 # ===========================================================================
-section("TEST B — Noisy coordinates (+0.05 to x,y,w,h in cell (3,3))")
+section("TEST B — Noisy coordinates (+0.05 to x,y,sqrt_w,sqrt_h in cell (3,3))")
 
 NOISE = 0.05
-noisy = targets.copy()
-noisy[0, 3, 3, 0] += NOISE    # pred_x = 0.55  (gt_x = 0.50)
-noisy[0, 3, 3, 1] += NOISE    # pred_y = 0.55  (gt_y = 0.50)
-noisy[0, 3, 3, 2] += NOISE    # pred_w = 0.35  (gt_w = 0.30)
-noisy[0, 3, 3, 3] += NOISE    # pred_h = 0.45  (gt_h = 0.40)
+# Start from perfect predictions so only the added noise contributes to loss.
+noisy = perf.copy()
+noisy[0, 3, 3, 0] += NOISE    # pred_x      = 0.55              (gt_x      = 0.50)
+noisy[0, 3, 3, 1] += NOISE    # pred_y      = 0.55              (gt_y      = 0.50)
+noisy[0, 3, 3, 2] += NOISE    # pred_sqrt_w = √0.3 + 0.05       (√gt_w     = √0.3)
+noisy[0, 3, 3, 3] += NOISE    # pred_sqrt_h = √0.4 + 0.05       (√gt_h     = √0.4)
 # conf and class channels are identical to target → terms 3,4,5 stay 0
 
 print(f"\n  pred box in (3,3): {noisy[0, 3, 3, :5]}")
-print(f"  gt   box in (3,3): {targets[0, 3, 3, :5]}")
+print(f"  perf box in (3,3): {perf[0, 3, 3, :5]}")
 
 t1n, t2n, t3n, t4n, t5n = compute_terms(noisy, targets)
 report(t1n, t2n, t3n, t4n, t5n)
 
 # ---- Term 1 hand derivation ----
-# dx = 0.55 - 0.50 = 0.05,  dy = 0.55 - 0.50 = 0.05
-# t1 = λ_coord * (dx² + dy²) = 5 * (0.05² + 0.05²) = 5 * 0.005 = 0.025
+# dx = 0.55 - 0.50 = 0.05,  dy = 0.05
+# t1 = λ_coord * (dx² + dy²) = 5 * 2 * 0.05² = 0.025
 expected_t1 = LC * (NOISE**2 + NOISE**2)
 
-# ---- Term 2 hand derivation ----
-# pred_w = 0.35,  gt_w = 0.30  →  √0.35 - √0.30
-# pred_h = 0.45,  gt_h = 0.40  →  √0.45 - √0.40
-pw_exp = 0.30 + NOISE
-ph_exp = 0.40 + NOISE
-dw_exp = np.sqrt(pw_exp) - np.sqrt(0.30)
-dh_exp = np.sqrt(ph_exp) - np.sqrt(0.40)
-expected_t2 = LC * (dw_exp**2 + dh_exp**2)
+# ---- Term 2 hand derivation (new sqrt_wh convention) ----
+# pred_sqrt_w = √0.3 + NOISE,  √gt_w = √0.3  →  diff = NOISE
+# pred_sqrt_h = √0.4 + NOISE,  √gt_h = √0.4  →  diff = NOISE
+# t2 = λ_coord * (NOISE² + NOISE²)  — same formula as Term 1!
+expected_t2 = LC * (NOISE**2 + NOISE**2)
 
 print(f"\n  Hand-computed expected values:")
-print(f"  Term 1: λ*(dx²+dy²) = {LC}*({NOISE}²+{NOISE}²) = {expected_t1:.6f}")
-print(f"  Term 2: λ*((√{pw_exp:.2f}-√0.30)²+(√{ph_exp:.2f}-√0.40)²)")
-print(f"        = {LC}*({dw_exp:.6f}²+{dh_exp:.6f}²) = {expected_t2:.6f}")
+print(f"  Term 1: λ*(dx²+dy²)           = {LC}*({NOISE}²+{NOISE}²) = {expected_t1:.6f}")
+print(f"  Term 2: λ*(d_sqrt_w²+d_sqrt_h²) = {LC}*({NOISE}²+{NOISE}²) = {expected_t2:.6f}")
 
 np.testing.assert_allclose(t1n, expected_t1, rtol=1e-5,
     err_msg=f"Term 1 mismatch: got {t1n:.6f}, expected {expected_t1:.6f}")
 np.testing.assert_allclose(t2n, expected_t2, rtol=1e-5,
     err_msg=f"Term 2 mismatch: got {t2n:.6f}, expected {expected_t2:.6f}")
 
-# Conf and class channels are still == target → terms 3,4,5 must be 0
-assert t3n == 0.0, f"[BUG] obj conf term should be 0 but got {t3n:.8f}"
+# NOTE: Term 3 is now NON-ZERO even though pred_conf was not touched.
+# Reason: confidence target = IoU(pred_box, gt_box). Adding noise to x,y,w,h
+# shifts the predicted box, reducing IoU below 1.0. Since pred_conf = 1.0,
+# t3 = (1.0 - IoU)^2 > 0. This is correct behaviour for the new convention.
+assert t3n > 0.0,  f"[BUG] noisy box should give non-zero obj conf term (IoU<1)"
+# Noobj cells still predict conf=0 (from perf), so t4 must be 0.
 assert t4n == 0.0, f"[BUG] noobj term should be 0 but got {t4n:.8f}"
+# Class channels not touched → t5 must be 0.
 assert t5n == 0.0, f"[BUG] class term should be 0 but got {t5n:.8f}"
 
 print()
-print(f"  [PASS] Term 1 (xy) increased to {t1n:.6f}  (expected {expected_t1:.6f})")
-print(f"  [PASS] Term 2 (wh) increased to {t2n:.6f}  (expected {expected_t2:.6f})")
-print(f"  [PASS] Term 3 (obj conf) unchanged: {t3n:.6f}  (conf channel not touched)")
-print(f"  [PASS] Term 4 (noobj) unchanged: {t4n:.6f}  (noobj cells still predict 0)")
-print(f"  [PASS] Term 5 (class) unchanged: {t5n:.6f}  (class channel not touched)")
-print(f"  [PASS] λ_coord = {LC} amplification verified for both xy and wh terms")
+print(f"  [PASS] Term 1 (xy)      increased to {t1n:.6f}  (expected {expected_t1:.6f})")
+print(f"  [PASS] Term 2 (sqrt_wh) increased to {t2n:.6f}  (expected {expected_t2:.6f})")
+print(f"  [INFO] Term 3 (obj conf) = {t3n:.6f}  (non-zero: IoU<1 because box moved)")
+print(f"  [PASS] Term 4 (noobj)   unchanged: {t4n:.6f}  (noobj cells predict 0)")
+print(f"  [PASS] Term 5 (class)   unchanged: {t5n:.6f}  (class channel not touched)")
+print(f"  [PASS] λ_coord = {LC} amplification verified for xy and sqrt_wh terms")
 
 
 # ===========================================================================
@@ -206,7 +213,7 @@ print("  pred_conf = 0.0 in GT cell (3,3) slot 0  (should be 1.0)")
 print("  pred_conf = 0.5 everywhere else           (should be 0.0)")
 print("  coords and class copied from target        (unchanged)")
 
-conf_wrong = targets.copy()
+conf_wrong = perf.copy()     # start from perfect preds (sqrt_wh correct, class correct)
 # Set all confidence channels to 0.5 (wrong for noobj cells)
 for b in range(B):
     conf_wrong[0, :, :, b*5 + 4] = 0.5
@@ -227,8 +234,9 @@ assert t5c == 0.0, f"[BUG] class term should be 0, got {t5c:.8f}"
 
 # ---- Term 3: obj confidence fires in cell (3,3) ----
 #   responsible predictor for GT slot 0 = pred slot 0
-#   (pred slot 0 has the same geometry as GT → IoU=1.0 > IoU(slot 1, GT)≈0)
-#   t3 = 1 GT box * (pred_conf - 1)² = (0.0 - 1.0)² = 1.0
+#   (pred slot 0 has the same geometry as GT → IoU=1.0 > IoU(slot 1, GT)=0)
+#   Confidence TARGET = IoU = 1.0  (new convention)
+#   t3 = 1 GT box * (pred_conf - iou_target)² = (0.0 - 1.0)² = 1.0
 expected_t3 = 1.0 * (0.0 - 1.0)**2
 
 np.testing.assert_allclose(t3c, expected_t3, rtol=1e-5,

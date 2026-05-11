@@ -1,27 +1,34 @@
 """
 YOLOv1 loss function — Redmon et al. (2016), Equation 3.
 
-Deviation from the paper:
-  The class probability term (Term 5 in Eq. 3) uses softmax + cross-entropy
-  instead of the paper's sum-of-squared-error on raw class outputs. SSE on
-  20-way class outputs gave anemic gradients for under-represented classes
-  and let the head collapse to "predict the most common class everywhere"
-  in our experiments. Softmax+CE is what every modern YOLOv1 reproduction
-  uses and gives well-conditioned per-class gradients. The decoder must
-  apply softmax to the class logits before computing detection scores.
+Key implementation choices:
+
+  1. sqrt(w,h) convention:
+       The model's w/h output channels are interpreted as sqrt(w) and sqrt(h).
+       Loss Term 2: (pred_sqrt_w - sqrt(gt_w))^2  — linear gradient, no singularity.
+       Targets store actual w, h; the loss applies sqrt() to them internally.
+       Decoder must SQUARE the w/h output channels to recover actual box size.
+
+  2. Confidence target = IoU:
+       For the responsible predicted box, confidence target = IoU(pred, gt).
+       This calibrates the confidence score to reflect localisation quality.
+
+  3. Class loss = SSE on raw outputs (no softmax):
+       Each class channel is penalised independently via (pred_c - tgt_c)^2.
+       Decoder uses raw class outputs directly (no softmax needed).
 
 Tensor convention (matches this codebase):
   predictions : (N, S*S*(B*5+C)) flat — raw output of YOLO.forward(), or
                 (N, S, S, B*5+C)       — pre-reshaped
   targets     : (N, S, S, B*5+C)       — from encode_yolov1_target()
 
-Per-predictor slot layout (both pred and target):
+Per-predictor slot layout:
   channels  [b*5 + 0]  : x_center relative to cell  [0, 1)
   channels  [b*5 + 1]  : y_center relative to cell  [0, 1)
-  channels  [b*5 + 2]  : width  relative to full image [0, 1]
-  channels  [b*5 + 3]  : height relative to full image [0, 1]
+  channels  [b*5 + 2]  : sqrt(width)  (pred) / raw width  (target)
+  channels  [b*5 + 3]  : sqrt(height) (pred) / raw height (target)
   channels  [b*5 + 4]  : objectness confidence
-  channels  [B*5 : ]   : class one-hot vector (C classes)
+  channels  [B*5 : ]   : class vector (one-hot for target, raw logits for pred)
 
 Responsible-predictor rule (Section 2.2 of the paper):
   For each GT slot b_gt with a ground-truth object, the predicted box whose
@@ -51,22 +58,32 @@ def _extract_components(tensor: cp.ndarray, B: int):
     return boxes, confs, cls
 
 
-def _to_image_corners(boxes: cp.ndarray, S: int) -> cp.ndarray:
+def _to_image_corners(boxes: cp.ndarray, S: int, sqrt_wh: bool = False) -> cp.ndarray:
     """
-    Convert (N, S, S, B, 4) boxes in (cx_cell, cy_cell, w_img, h_img) format
+    Convert (N, S, S, B, 4) boxes in (cx_cell, cy_cell, w, h) format
     to image-space corners (x1, y1, x2, y2).
 
     cx_cell / cy_cell are relative to the cell origin [0, 1).
-    w_img   / h_img   are relative to the full image  [0, 1].
+    w / h are relative to the full image [0, 1].
+
+    sqrt_wh : if True, the w/h channels are interpreted as sqrt(w)/sqrt(h)
+              (prediction convention). They are squared to recover actual w/h.
+              If False (target convention), w/h are used directly after clipping.
     """
-    # Cell-origin offsets — col index for x, row index for y
     col_off = cp.arange(S, dtype=cp.float32).reshape(1, 1, S, 1)  # (1,1,S,1)
     row_off = cp.arange(S, dtype=cp.float32).reshape(1, S, 1, 1)  # (1,S,1,1)
 
     cx = (col_off + boxes[..., 0]) / S          # (N,S,S,B)
     cy = (row_off + boxes[..., 1]) / S
-    w  = cp.clip(boxes[..., 2], 0.0, None)
-    h  = cp.clip(boxes[..., 3], 0.0, None)
+
+    if sqrt_wh:
+        # Predictions output sqrt(w), sqrt(h). Square to recover actual w, h.
+        # Squaring a negative is still positive, so no clipping needed here.
+        w = boxes[..., 2] ** 2
+        h = boxes[..., 3] ** 2
+    else:
+        w = cp.clip(boxes[..., 2], 0.0, None)
+        h = cp.clip(boxes[..., 3], 0.0, None)
 
     return cp.stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], axis=-1)
 
@@ -90,8 +107,9 @@ def _compute_assignments(
     tgt_boxes,  tgt_conf,  tgt_cls  = _extract_components(targets, B)
 
     # ---- image-space corners for IoU ----------------------------------------
-    pred_corners = _to_image_corners(pred_boxes, S)   # (N,S,S,B_pred,4)
-    tgt_corners  = _to_image_corners(tgt_boxes,  S)   # (N,S,S,B_gt, 4)
+    # Predictions store sqrt(w)/sqrt(h); targets store actual w/h.
+    pred_corners = _to_image_corners(pred_boxes, S, sqrt_wh=True)   # (N,S,S,B_pred,4)
+    tgt_corners  = _to_image_corners(tgt_boxes,  S, sqrt_wh=False)  # (N,S,S,B_gt, 4)
 
     # ---- cross-IoU: pred b_pred vs GT b_gt ----------------------------------
     pc = pred_corners[:, :, :, :, None, :]   # (N,S,S,B_pred,1,    4)
@@ -121,6 +139,11 @@ def _compute_assignments(
     resp_pred_boxes = pred_boxes[n_idx, i_idx, j_idx, best_pred, :]  # (N,S,S,B_gt,4)
     resp_pred_conf  = pred_conf[ n_idx, i_idx, j_idx, best_pred   ]  # (N,S,S,B_gt)
 
+    # ---- gather the IoU of each responsible predicted box with its GT -------
+    # resp_iou[n,i,j,b_gt] = iou[n,i,j, best_pred[n,i,j,b_gt], b_gt]
+    b_gt_idx = cp.arange(B)[None, None, None, :]                      # (1,1,1,B)
+    resp_iou  = iou[n_idx, i_idx, j_idx, best_pred, b_gt_idx]         # (N,S,S,B)
+
     # ---- obj_ij mask: 1 where pred box b_pred is responsible for some GT ----
     # Iterate over B*B combinations (B=2, so 4 iterations — negligible cost).
     obj_ij = cp.zeros((N, S, S, B), dtype=cp.float32)
@@ -140,6 +163,7 @@ def _compute_assignments(
         pred_boxes=pred_boxes, pred_conf=pred_conf, pred_cls=pred_cls,
         tgt_boxes=tgt_boxes,   tgt_conf=tgt_conf,   tgt_cls=tgt_cls,
         resp_pred_boxes=resp_pred_boxes, resp_pred_conf=resp_pred_conf,
+        resp_iou=resp_iou,
         best_pred=best_pred,
         obj_ij=obj_ij, noobj_ij=noobj_ij, obj_cell=obj_cell,
     )
@@ -156,7 +180,7 @@ def yolo_loss(
     B:             int   = 2,
     C:             int   = 20,
     lambda_coord:  float = 5.0,
-    lambda_noobj:  float = 0.1,
+    lambda_noobj:  float = 0.5,
 ) -> float:
     """
     YOLOv1 multi-part loss (Equation 3 of Redmon et al. 2016).
@@ -193,6 +217,7 @@ def yolo_loss(
     tgt_cls         = a['tgt_cls']           # (N,S,S,C)
     resp_pred_boxes = a['resp_pred_boxes']   # (N,S,S,B,4)
     resp_pred_conf  = a['resp_pred_conf']    # (N,S,S,B)
+    resp_iou        = a['resp_iou']          # (N,S,S,B)
     pred_conf       = a['pred_conf']         # (N,S,S,B)
     pred_cls        = a['pred_cls']          # (N,S,S,C)
     noobj_ij        = a['noobj_ij']          # (N,S,S,B)
@@ -206,22 +231,23 @@ def yolo_loss(
     loss_xy = (tgt_conf * (dx ** 2 + dy ** 2)).sum()
 
     # ------------------------------------------------------------------
-    # Term 2: wh coordinate loss   λ_coord Σ 1^obj_ij [(√w-√ŵ)²+(√h-√ĥ)²]
+    # Term 2: wh coordinate loss   λ_coord Σ 1^obj_ij [(p_√w-√ĝw)²+(p_√h-√ĝh)²]
+    # pred channels 2,3 are interpreted as sqrt(w), sqrt(h) directly.
+    # Targets store actual w, h — apply sqrt() to them here.
     # ------------------------------------------------------------------
-    pw = cp.clip(resp_pred_boxes[..., 2], 1e-9, None)
-    ph = cp.clip(resp_pred_boxes[..., 3], 1e-9, None)
     gw = cp.clip(tgt_boxes[..., 2], 0.0, None)
     gh = cp.clip(tgt_boxes[..., 3], 0.0, None)
-    loss_wh = (tgt_conf * ((cp.sqrt(pw) - cp.sqrt(gw)) ** 2
-                          + (cp.sqrt(ph) - cp.sqrt(gh)) ** 2)).sum()
+    loss_wh = (tgt_conf * ((resp_pred_boxes[..., 2] - cp.sqrt(gw)) ** 2
+                          + (resp_pred_boxes[..., 3] - cp.sqrt(gh)) ** 2)).sum()
 
     loss_coord = lambda_coord * (loss_xy + loss_wh)
 
     # ------------------------------------------------------------------
     # Term 3: object confidence loss   Σ 1^obj_ij (C_i - Ĉ_i)²
-    # Target confidence = 1.0 for the responsible predictor.
+    # Target confidence = IoU(responsible pred box, GT box).
+    # Target = IoU calibrates confidence to localisation quality.
     # ------------------------------------------------------------------
-    loss_obj = (tgt_conf * (resp_pred_conf - 1.0) ** 2).sum()
+    loss_obj = (tgt_conf * (resp_pred_conf - resp_iou) ** 2).sum()
 
     # ------------------------------------------------------------------
     # Term 4: no-object confidence loss   λ_noobj Σ 1^noobj_ij (C_i - Ĉ_i)²
@@ -230,18 +256,17 @@ def yolo_loss(
     loss_noobj = lambda_noobj * (noobj_ij * pred_conf ** 2).sum()
 
     # ------------------------------------------------------------------
-    # Term 5: class probability loss — softmax + cross-entropy.
-    #   loss_cls = Σ_{cells with obj}  -Σ_c  tgt_cls(c) * log softmax(pred_cls)(c)
-    # tgt_cls is one-hot at responsible cells (and zero elsewhere); obj_cell
-    # gates the sum to cells that actually contain an object.
+    # Term 5: class probability loss — SSE on raw outputs.
+    #   loss_cls = Σ_{cells with obj}  Σ_c  (pred_cls_c - tgt_cls_c)²
+    # Each class channel is penalised independently.
+    # No softmax — decoder uses raw class outputs directly.
     # ------------------------------------------------------------------
-    sm = _softmax_classes(pred_cls)                                  # (N,S,S,C)
-    log_sm = cp.log(cp.clip(sm, 1e-12, 1.0))
-    ce_per_cell = -(tgt_cls * log_sm).sum(axis=-1)                   # (N,S,S)
-    loss_cls = (obj_cell * ce_per_cell).sum()
+    diff_cls    = pred_cls - tgt_cls                                  # (N,S,S,C)
+    sse_per_cell = (diff_cls ** 2).sum(axis=-1)                       # (N,S,S)
+    loss_cls = (obj_cell * sse_per_cell).sum()
 
     total = loss_coord + loss_obj + loss_noobj + loss_cls
-    return float(cp.asnumpy(total))
+    return float(cp.asnumpy(total / N))
 
 
 def yolo_loss_grad(
@@ -251,7 +276,7 @@ def yolo_loss_grad(
     B:             int   = 2,
     C:             int   = 20,
     lambda_coord:  float = 5.0,
-    lambda_noobj:  float = 0.1,
+    lambda_noobj:  float = 0.5,
 ) -> cp.ndarray:
     """
     Gradient of the YOLOv1 loss w.r.t. ``predictions``.
@@ -282,6 +307,7 @@ def yolo_loss_grad(
     tgt_boxes = a['tgt_boxes']   # (N,S,S,B,4)
     tgt_cls   = a['tgt_cls']     # (N,S,S,C)
     pred_cls  = a['pred_cls']    # (N,S,S,C)
+    resp_iou  = a['resp_iou']    # (N,S,S,B)
     noobj_ij  = a['noobj_ij']    # (N,S,S,B)
     obj_cell  = a['obj_cell']    # (N,S,S)
     best_pred = a['best_pred']   # (N,S,S,B_gt) — responsible pred index per GT slot
@@ -317,29 +343,13 @@ def yolo_loss_grad(
             grad[..., base + 0] += 2.0 * lambda_coord * active * (px - gt_x)
             grad[..., base + 1] += 2.0 * lambda_coord * active * (py - gt_y)
 
-            # dL/d(w) via chain rule through sqrt(clip(w, eps, inf)):
-            #   d/dw [ (√w - √ĝw)² ] = (√w - √ĝw)/√w   if w > eps
-            #                       = 0                 if w <= eps (clipped branch)
-            # The old code used sqrt(max(w, eps)) in the denominator, which makes
-            # the gradient diverge (~ -√gt_w / 6e-5) whenever the raw prediction
-            # is negative -- a catastrophic blow-up on randomly-initialised heads.
-            pw_clip_eps = 1e-9
-            ph_clip_eps = 1e-9
-            w_valid = (pw_raw > pw_clip_eps).astype(preds.dtype)
-            h_valid = (ph_raw > ph_clip_eps).astype(preds.dtype)
-            pw = cp.maximum(pw_raw, pw_clip_eps)
-            ph = cp.maximum(ph_raw, ph_clip_eps)
-            grad[..., base + 2] += (
-                2.0 * lambda_coord * active * w_valid
-                * (cp.sqrt(pw) - cp.sqrt(gt_w)) / (2.0 * cp.sqrt(pw))
-            )
-            grad[..., base + 3] += (
-                2.0 * lambda_coord * active * h_valid
-                * (cp.sqrt(ph) - cp.sqrt(gt_h)) / (2.0 * cp.sqrt(ph))
-            )
+            # dL/d(pred_sqrt_w) = 2 * λ_coord * active * (pred_sqrt_w - sqrt(gt_w))
+            # Linear gradient — always finite, no dead zone for negative predictions.
+            grad[..., base + 2] += 2.0 * lambda_coord * active * (pw_raw - cp.sqrt(gt_w))
+            grad[..., base + 3] += 2.0 * lambda_coord * active * (ph_raw - cp.sqrt(gt_h))
 
-            # dL/d(conf) from obj loss: 2 * active * (pred_conf - 1)
-            grad[..., base + 4] += 2.0 * active * (pc - 1.0)
+            # dL/d(conf) from obj loss: 2 * active * (pred_conf - iou_target)
+            grad[..., base + 4] += 2.0 * active * (pc - resp_iou[..., b_gt])
 
     # ------------------------------------------------------------------
     # Gradient from no-object confidence loss.
@@ -352,14 +362,10 @@ def yolo_loss_grad(
         grad[..., base + 4] += 2.0 * lambda_noobj * noobj_ij[..., b_pred] * pc
 
     # ------------------------------------------------------------------
-    # Gradient from class probability loss (softmax + cross-entropy).
-    # For per-cell softmax sm = softmax(pred_cls) and one-hot tgt_cls:
-    #   dL/d(pred_cls_c) = obj_cell * (sm_c - tgt_cls_c)
-    # This is the standard CE-on-softmax gradient; it pushes the correct
-    # class up and ALL other classes down with magnitudes that don't
-    # vanish near 0 (which is why MSE failed for rare classes).
+    # Gradient from class SSE loss.
+    #   dL/d(pred_cls_c) = 2 * obj_cell * (pred_cls_c - tgt_cls_c)
+    # Each class channel penalised independently — no softmax coupling.
     # ------------------------------------------------------------------
-    sm = _softmax_classes(pred_cls)
-    grad[..., B * 5:] += obj_cell[..., None] * (sm - tgt_cls)
+    grad[..., B * 5:] += 2.0 * obj_cell[..., None] * (pred_cls - tgt_cls)
 
-    return grad.reshape(input_shape)
+    return grad.reshape(input_shape) / N
